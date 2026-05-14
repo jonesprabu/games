@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Jump & Run</title>
+<style>
+  body {
+    margin: 0;
+    background: #1a1a2e;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: system-ui, sans-serif;
+    color: #eee;
+  }
+  h1 { margin: 12px 0; }
+  canvas {
+    background: linear-gradient(#87ceeb, #c2e9fb);
+    border: 2px solid #333;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  .info { margin-top: 10px; font-size: 14px; opacity: 0.8; }
+</style>
+</head>
+<body>
+  <h1>Jump & Run</h1>
+  <canvas id="game" width="800" height="450"></canvas>
+  <div class="info">Move: &larr; &rarr; or A/D &nbsp;&middot;&nbsp; Jump: Space / W / &uarr;</div>
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const GROUND_Y = H - 40;
+
+  const keys = {};
+  addEventListener('keydown', e => {
+    keys[e.code] = true;
+    if (['Space','ArrowUp','ArrowLeft','ArrowRight','ArrowDown'].includes(e.code)) e.preventDefault();
+  });
+  addEventListener('keyup', e => { keys[e.code] = false; });
+
+  const player = {
+    x: 100, y: GROUND_Y - 40,
+    w: 30, h: 40,
+    vx: 0, vy: 0,
+    onGround: true,
+    facing: 1,
+  };
+
+  const GRAVITY = 0.8;
+  const MOVE_SPEED = 5;
+  const JUMP_POWER = 14;
+
+  const platforms = [
+    { x: 0,   y: GROUND_Y, w: W, h: 40 },
+    { x: 180, y: 340, w: 120, h: 14 },
+    { x: 360, y: 270, w: 120, h: 14 },
+    { x: 540, y: 200, w: 120, h: 14 },
+    { x: 680, y: 330, w: 100, h: 14 },
+  ];
+
+  const coins = [
+    { x: 240, y: 305, taken: false },
+    { x: 420, y: 235, taken: false },
+    { x: 600, y: 165, taken: false },
+    { x: 730, y: 295, taken: false },
+    { x: 60,  y: GROUND_Y - 30, taken: false },
+  ];
+
+  let score = 0;
+
+  function rectOverlap(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+
+  function update() {
+    const left = keys['ArrowLeft'] || keys['KeyA'];
+    const right = keys['ArrowRight'] || keys['KeyD'];
+    const jump = keys['Space'] || keys['ArrowUp'] || keys['KeyW'];
+
+    player.vx = 0;
+    if (left)  { player.vx = -MOVE_SPEED; player.facing = -1; }
+    if (right) { player.vx =  MOVE_SPEED; player.facing =  1; }
+
+    if (jump && player.onGround) {
+      player.vy = -JUMP_POWER;
+      player.onGround = false;
+    }
+
+    player.vy += GRAVITY;
+    if (player.vy > 18) player.vy = 18;
+
+    player.x += player.vx;
+    if (player.x < 0) player.x = 0;
+    if (player.x + player.w > W) player.x = W - player.w;
+
+    player.y += player.vy;
+
+    player.onGround = false;
+    for (const p of platforms) {
+      const inX = player.x + player.w > p.x && player.x < p.x + p.w;
+      if (!inX) continue;
+      const prevBottom = player.y + player.h - player.vy;
+      if (player.vy >= 0 && prevBottom <= p.y + 0.5 && player.y + player.h >= p.y) {
+        player.y = p.y - player.h;
+        player.vy = 0;
+        player.onGround = true;
+      }
+    }
+
+    if (player.y > H) {
+      player.x = 100;
+      player.y = GROUND_Y - player.h;
+      player.vy = 0;
+    }
+
+    for (const c of coins) {
+      if (c.taken) continue;
+      const cb = { x: c.x - 10, y: c.y - 10, w: 20, h: 20 };
+      if (rectOverlap(player, cb)) { c.taken = true; score++; }
+    }
+  }
+
+  function drawPlayer() {
+    ctx.fillStyle = '#e94560';
+    ctx.fillRect(player.x, player.y, player.w, player.h);
+    ctx.fillStyle = '#fff';
+    const eyeX = player.x + (player.facing > 0 ? 18 : 6);
+    ctx.fillRect(eyeX, player.y + 10, 6, 6);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(eyeX + (player.facing > 0 ? 3 : 0), player.y + 12, 3, 3);
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    ctx.fillStyle = '#fff';
+    for (let i = 0; i < 5; i++) {
+      const cx = (i * 173) % W;
+      ctx.beginPath();
+      ctx.arc(cx, 60 + (i*23)%40, 18, 0, Math.PI*2);
+      ctx.arc(cx+18, 60 + (i*23)%40, 22, 0, Math.PI*2);
+      ctx.arc(cx+38, 60 + (i*23)%40, 16, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    for (const p of platforms) {
+      if (p.y === GROUND_Y) {
+        ctx.fillStyle = '#5a3a22';
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        ctx.fillStyle = '#3a8a3a';
+        ctx.fillRect(p.x, p.y, p.w, 8);
+      } else {
+        ctx.fillStyle = '#8b5a2b';
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        ctx.fillStyle = '#3a8a3a';
+        ctx.fillRect(p.x, p.y, p.w, 4);
+      }
+    }
+
+    for (const c of coins) {
+      if (c.taken) continue;
+      ctx.fillStyle = '#f5c518';
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, 8, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#c79500';
+      ctx.fillRect(c.x - 1, c.y - 5, 2, 10);
+    }
+
+    drawPlayer();
+
+    ctx.fillStyle = '#222';
+    ctx.font = 'bold 20px system-ui, sans-serif';
+    ctx.fillText('Score: ' + score, 14, 28);
+    if (coins.every(c => c.taken)) {
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(0, H/2 - 40, W, 80);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 32px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('All coins collected!', W/2, H/2 + 10);
+      ctx.textAlign = 'start';
+    }
+  }
+
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+  loop();
+})();
+</script>
+</body>
+</html>
