@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Deep Catch</title>
+<style>
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: #06121c;
+    color: #eee;
+    font-family: system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px;
+    box-sizing: border-box;
+  }
+  h1 { margin: 4px 0 6px; letter-spacing: 1px; }
+  a.back { color: #8ad; text-decoration: none; font-size: 13px; }
+  a.back:hover { text-decoration: underline; }
+  .layout {
+    display: flex;
+    gap: 14px;
+    margin-top: 12px;
+    align-items: flex-start;
+  }
+  canvas {
+    background: #0a2a44;
+    border: 2px solid #222;
+    border-radius: 8px;
+    box-shadow: 0 0 30px rgba(80,140,200,0.25);
+  }
+  #panel {
+    width: 260px;
+    background: #0e1a26;
+    border: 1px solid #243245;
+    border-radius: 8px;
+    padding: 12px;
+    box-sizing: border-box;
+    font-size: 13px;
+  }
+  #panel h2 { font-size: 14px; margin: 8px 0 6px; color: #f5c518; letter-spacing: 0.5px; text-transform: uppercase; }
+  #panel h2:first-child { margin-top: 0; }
+  .stat-row { display: flex; justify-content: space-between; margin: 3px 0; }
+  .stat-row b { color: #fff; }
+  .stat-row .val { color: #8df; }
+  .shop-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: #18283a;
+    color: #eee;
+    border: 1px solid #2a4060;
+    padding: 8px 10px;
+    margin: 4px 0;
+    border-radius: 5px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background .1s;
+  }
+  .shop-btn:hover:not(:disabled) { background: #243a55; }
+  .shop-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .shop-btn .cost { float: right; color: #f5c518; }
+  .shop-btn .lv { color: #8df; }
+  .shop-btn.maxed .cost { color: #5a7; }
+  .info { margin-top: 12px; font-size: 12px; opacity: 0.75; text-align: center; max-width: 980px; line-height: 1.6; }
+  .info b { color: #f5c518; }
+</style>
+</head>
+<body>
+  <h1>Deep Catch</h1>
+  <a class="back" href="index.html">&larr; back to menu</a>
+  <div class="layout">
+    <canvas id="game" width="720" height="600"></canvas>
+    <aside id="panel">
+      <h2>Captain</h2>
+      <div class="stat-row"><span>Coins</span><span class="val" id="s-coins">0</span></div>
+      <div class="stat-row"><span>Boat</span><span class="val" id="s-boat">Rowboat</span></div>
+      <div class="stat-row"><span>Catch bonus</span><span class="val" id="s-bonus">x1.0</span></div>
+      <h2>Gear</h2>
+      <div class="stat-row"><span>Line length</span><span class="val" id="s-line">150 m</span></div>
+      <div class="stat-row"><span>Line strength</span><span class="val" id="s-str">1</span></div>
+      <div class="stat-row"><span>Reel speed</span><span class="val" id="s-reel">1.6</span></div>
+      <div class="stat-row"><span>Hull HP</span><span class="val" id="s-hp">3</span></div>
+      <h2>Shop</h2>
+      <div id="shop"></div>
+      <h2>Records</h2>
+      <div class="stat-row"><span>Fish caught</span><span class="val" id="s-total">0</span></div>
+      <div class="stat-row"><span>Deepest dive</span><span class="val" id="s-deep">0 m</span></div>
+      <button class="shop-btn" id="reset-btn" style="margin-top:10px;background:#3a1820;border-color:#602030;">Reset progress</button>
+    </aside>
+  </div>
+  <p class="info">
+    Move boat: <b>&larr; &rarr;</b> &nbsp;&middot;&nbsp; Drop line: <b>Space</b> &nbsp;&middot;&nbsp;
+    While diving, steer with <b>&larr; &rarr;</b>, descend faster with <b>&darr;</b>, reel up with <b>&uarr;</b> &nbsp;&middot;&nbsp;
+    Press <b>Space</b> again to reel back to surface.
+    <br>Dodge <b>rocks</b> &mdash; they damage your line. Stronger line catches bigger fish; deeper waters hide wilder species.
+  </p>
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const SURFACE_Y = 90;            // canvas y where water surface sits
+  const VIEW_DEPTH = H - SURFACE_Y; // pixels of water visible at once
+
+  // ---------- ZONES ----------
+  const ZONES = [
+    { name: 'Shallows', start: 0,   end: 80,   col1: '#3a8ec0', col2: '#1f6090', rockRate: 0.000 },
+    { name: 'Reef',     start: 80,  end: 200,  col1: '#1f6090', col2: '#15406a', rockRate: 0.004 },
+    { name: 'Deep',     start: 200, end: 400,  col1: '#15406a', col2: '#0d2a4a', rockRate: 0.010 },
+    { name: 'Abyss',    start: 400, end: 650,  col1: '#0d2a4a', col2: '#061830', rockRate: 0.020 },
+    { name: 'Trench',   start: 650, end: 1000, col1: '#061830', col2: '#020812', rockRate: 0.035 },
+  ];
+  const MAX_DEPTH = ZONES[ZONES.length-1].end;
+
+  // ---------- FISH ----------
+  // strength = line strength needed; val = coins
+  const FISH = [
+    // Shallows
+    { name:'Minnow',     zone:0, col:'#cde2f0', sz:10, str:1, val:2,    weight: 6 },
+    { name:'Sardine',    zone:0, col:'#9fd0e8', sz:14, str:1, val:5,    weight: 5 },
+    { name:'Pufferfish', zone:0, col:'#f8c860', sz:20, str:2, val:14,   weight: 3, puff:true },
+    // Reef
+    { name:'Clownfish',  zone:1, col:'#ff8a3a', sz:16, str:2, val:22,   weight: 5, stripe:'#fff' },
+    { name:'Angelfish',  zone:1, col:'#ffd24a', sz:22, str:3, val:38,   weight: 4 },
+    { name:'Moray Eel',  zone:1, col:'#6a9a3a', sz:28, str:3, val:55,   weight: 3, long:true },
+    // Deep
+    { name:'Tuna',       zone:2, col:'#5a8ad0', sz:30, str:4, val:90,   weight: 5 },
+    { name:'Squid',      zone:2, col:'#c876e8', sz:24, str:4, val:120,  weight: 4 },
+    { name:'Swordfish',  zone:2, col:'#a0c0d8', sz:38, str:5, val:170,  weight: 3, sword:true },
+    // Abyss
+    { name:'Anglerfish', zone:3, col:'#3a2a1c', sz:30, str:6, val:280,  weight: 4, glow:'#ffeb6e' },
+    { name:'Octopus',    zone:3, col:'#e04088', sz:34, str:6, val:340,  weight: 3 },
+    { name:'Giant Squid',zone:3, col:'#a060f0', sz:44, str:7, val:520,  weight: 2 },
+    // Trench
+    { name:'Lava Ray',   zone:4, col:'#ff5a28', sz:38, str:8, val:900,  weight: 3, glow:'#ffaa30' },
+    { name:'Sea Dragon', zone:4, col:'#22e0a8', sz:48, str:9, val:1500, weight: 2, long:true },
+    { name:'Kraken Pup', zone:4, col:'#7028b0', sz:54, str:10,val:2600, weight: 1, glow:'#a060ff' },
+  ];
+
+  // ---------- BOATS ----------
+  const BOATS = [
+    { name:'Rowboat',     mult: 1.0, col:'#a06030' },
+    { name:'Skiff',       mult: 1.25,col:'#c08040' },
+    { name:'Cutter',      mult: 1.6, col:'#d4d4d4' },
+    { name:'Trawler',     mult: 2.2, col:'#3a6a3a' },
+    { name:'Submersible', mult: 3.5, col:'#ffd24a' },
+  ];
+
+  // ---------- UPGRADES ----------
+  const UPGRADES = [
+    { key:'maxLine', label:'Longer Line', step: 50, max: 17, base: 40, factor: 1.55, unit:' m', stat:'+50m reach' },
+    { key:'strength',label:'Stronger Line', step: 1, max: 9,  base: 80, factor: 2.0,  unit:'',   stat:'+1 strength' },
+    { key:'reelSpeed',label:'Faster Reel', step: 0.3,max: 6,  base: 70, factor: 1.7,  unit:'',   stat:'+0.3 speed' },
+    { key:'maxHP',   label:'Reinforced Hull',step:1, max: 7,  base: 60, factor: 1.8,  unit:'',   stat:'+1 HP' },
+  ];
+
+  // ---------- STATE ----------
+  const SAVE_KEY = 'deepCatch_v1';
+  const defaultState = () => ({
+    coins: 50, maxLine: 150, strength: 1, reelSpeed: 1.6, maxHP: 3, boatTier: 0,
+    levels: { maxLine: 0, strength: 0, reelSpeed: 0, maxHP: 0 },
+    totalFish: 0, deepest: 0,
+  });
+  let state = load();
+  function load() {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (raw) return Object.assign(defaultState(), JSON.parse(raw));
+    } catch(e) {}
+    return defaultState();
+  }
+  function save() { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); }
+
+  // ---------- INPUT ----------
+  const keys = {};
+  let justPressed = {};
+  addEventListener('keydown', e => {
+    if (!keys[e.code]) justPressed[e.code] = true;
+    keys[e.code] = true;
+    if (['Space','ArrowUp','ArrowLeft','ArrowRight','ArrowDown'].includes(e.code)) e.preventDefault();
+  });
+  addEventListener('keyup', e => { keys[e.code] = false; });
+
+  // ---------- RUNTIME ----------
+  let mode = 'idle'; // idle | diving | reeling | snapped
+  let snapTimer = 0;
+  const boat = { x: W/2, vx: 0 };
+  let hook = null;     // { x, y, vy, hp, invuln, catch: [], deepest }
+  let camY = 0;
+  let fishes = [];
+  let rocks = [];
+  let popups = [];
+  let bubbles = [];
+
+  // Spawn an initial population of fish across all zones
+  function pickFishForZone(z) {
+    const pool = FISH.filter(f => f.zone === z);
+    let total = 0; for (const f of pool) total += f.weight;
+    let r = Math.random() * total;
+    for (const f of pool) { r -= f.weight; if (r <= 0) return f; }
+    return pool[0];
+  }
+  function spawnFish(zoneIdx) {
+    const z = ZONES[zoneIdx];
+    const def = pickFishForZone(zoneIdx);
+    const depthInZone = z.start + Math.random() * (z.end - z.start);
+    fishes.push({
+      def,
+      x: Math.random() * W,
+      y: SURFACE_Y + depthInZone,
+      baseY: SURFACE_Y + depthInZone,
+      wob: Math.random() * Math.PI * 2,
+      vx: (Math.random() < 0.5 ? -1 : 1) * (0.4 + Math.random() * 1.2),
+    });
+  }
+  function ensureFishPopulation() {
+    const target = [10, 9, 8, 6, 5]; // per zone
+    const counts = [0,0,0,0,0];
+    for (const f of fishes) counts[f.def.zone]++;
+    for (let z = 0; z < ZONES.length; z++) {
+      while (counts[z] < target[z]) { spawnFish(z); counts[z]++; }
+    }
+  }
+  ensureFishPopulation();
+
+  function spawnRock(zoneIdx) {
+    const z = ZONES[zoneIdx];
+    const fromLeft = Math.random() < 0.5;
+    const size = 14 + Math.random() * 22 + zoneIdx * 3;
+    const speed = 0.8 + Math.random() * 1.4 + zoneIdx * 0.3;
+    const depthInZone = z.start + Math.random() * (z.end - z.start);
+    rocks.push({
+      x: fromLeft ? -size - 4 : W + size + 4,
+      y: SURFACE_Y + depthInZone,
+      vx: fromLeft ? speed : -speed,
+      vy: (Math.random() - 0.5) * 0.4,
+      size,
+      rot: Math.random() * Math.PI * 2,
+      rotV: (Math.random() - 0.5) * 0.04,
+      shape: Array.from({length: 8}, (_, i) => ({
+        a: i / 8 * Math.PI * 2,
+        d: 0.75 + Math.random() * 0.3,
+      })),
+    });
+  }
+
+  function currentZoneIdx(depth) {
+    for (let i = 0; i < ZONES.length; i++) {
+      if (depth >= ZONES[i].start && depth < ZONES[i].end) return i;
+    }
+    return ZONES.length - 1;
+  }
+
+  function popup(text, x, y, color) {
+    popups.push({ text, x, y, color, age: 0, life: 70 });
+  }
+
+  function startDive() {
+    if (mode !== 'idle') return;
+    hook = {
+      x: boat.x,
+      y: SURFACE_Y + 4,
+      vy: state.reelSpeed,
+      hp: state.maxHP,
+      invuln: 0,
+      catch: [],
+      deepest: 0,
+    };
+    mode = 'diving';
+  }
+
+  function endTrip(snapped) {
+    if (!snapped && hook && hook.catch.length > 0) {
+      const mult = BOATS[state.boatTier].mult;
+      let total = 0;
+      for (const f of hook.catch) total += f.val;
+      total = Math.floor(total * mult);
+      state.coins += total;
+      state.totalFish += hook.catch.length;
+      popup(`+${total} coins (${hook.catch.length} fish)`, W/2, SURFACE_Y + 30, '#f5c518');
+      if (hook.deepest > state.deepest) state.deepest = Math.floor(hook.deepest);
+      save();
+      refreshPanel();
+    }
+    hook = null;
+    mode = 'idle';
+  }
+
+  // ---------- UPDATE ----------
+  function dist(ax, ay, bx, by) { const dx=ax-bx, dy=ay-by; return Math.hypot(dx,dy); }
+
+  function update() {
+    const left = keys['ArrowLeft'] || keys['KeyA'];
+    const right = keys['ArrowRight'] || keys['KeyD'];
+    const up = keys['ArrowUp'] || keys['KeyW'];
+    const down = keys['ArrowDown'] || keys['KeyS'];
+
+    if (mode === 'idle') {
+      const sp = 3 + state.boatTier * 0.4;
+      if (left) boat.x -= sp;
+      if (right) boat.x += sp;
+      boat.x = Math.max(28, Math.min(W - 28, boat.x));
+      if (justPressed['Space']) startDive();
+    } else if (mode === 'diving' || mode === 'reeling') {
+      // Steer hook
+      const sx = 3;
+      if (left) hook.x -= sx;
+      if (right) hook.x += sx;
+      hook.x = Math.max(10, Math.min(W - 10, hook.x));
+
+      if (mode === 'diving') {
+        if (justPressed['Space']) { mode = 'reeling'; }
+        else {
+          if (up) hook.vy = -state.reelSpeed * 1.2;
+          else if (down) hook.vy = state.reelSpeed * 1.8;
+          else hook.vy = state.reelSpeed;
+        }
+        const depth = hook.y - SURFACE_Y;
+        if (depth >= state.maxLine) { hook.y = SURFACE_Y + state.maxLine; mode = 'reeling'; }
+      }
+      if (mode === 'reeling') {
+        hook.vy = -state.reelSpeed * 1.4;
+      }
+      hook.y += hook.vy;
+      const depth = hook.y - SURFACE_Y;
+      if (depth > hook.deepest) hook.deepest = depth;
+      if (hook.invuln > 0) hook.invuln--;
+
+      if (hook.y <= SURFACE_Y + 2) { endTrip(false); }
+
+      // Spawn rocks based on zone
+      if (hook) {
+        const zi = currentZoneIdx(hook.y - SURFACE_Y);
+        if (Math.random() < ZONES[zi].rockRate) spawnRock(zi);
+        // bubbles trail
+        if (Math.random() < 0.5) {
+          bubbles.push({ x: hook.x + (Math.random()-0.5)*6, y: hook.y, vy: -0.5 - Math.random(), r: 1 + Math.random()*2, age: 0 });
+        }
+      }
+    } else if (mode === 'snapped') {
+      snapTimer--;
+      if (snapTimer <= 0) { hook = null; mode = 'idle'; }
+    }
+
+    // Fish move
+    for (const f of fishes) {
+      f.x += f.vx;
+      f.wob += 0.06;
+      f.y = f.baseY + Math.sin(f.wob) * 4;
+      if (f.x < -40) f.x = W + 20;
+      if (f.x > W + 40) f.x = -20;
+    }
+
+    // Rocks
+    for (let i = rocks.length - 1; i >= 0; i--) {
+      const r = rocks[i];
+      r.x += r.vx;
+      r.y += r.vy;
+      r.rot += r.rotV;
+      if (r.x < -r.size*2 - 20 || r.x > W + r.size*2 + 20) rocks.splice(i, 1);
+    }
+
+    // Bubbles
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+      const b = bubbles[i];
+      b.y += b.vy; b.age++;
+      if (b.y < SURFACE_Y || b.age > 80) bubbles.splice(i, 1);
+    }
+
+    // Popups
+    for (let i = popups.length - 1; i >= 0; i--) {
+      popups[i].age++;
+      popups[i].y -= 0.4;
+      if (popups[i].age >= popups[i].life) popups.splice(i, 1);
+    }
+
+    // Collisions (only while diving/reeling and not invuln)
+    if (hook && hook.invuln <= 0 && mode !== 'snapped') {
+      // Fish
+      for (let i = fishes.length - 1; i >= 0; i--) {
+        const f = fishes[i];
+        if (Math.abs(f.x - hook.x) < f.def.sz && Math.abs(f.y - hook.y) < f.def.sz * 0.7) {
+          if (state.strength >= f.def.str) {
+            hook.catch.push(f.def);
+            const mult = BOATS[state.boatTier].mult;
+            popup(`+${Math.floor(f.def.val * mult)} ${f.def.name}`, hook.x, hook.y - 10, '#f5c518');
+            fishes.splice(i, 1);
+            // Respawn a fish of that zone elsewhere
+            setTimeout(() => { spawnFish(f.def.zone); }, 1200 + Math.random()*1500);
+          } else {
+            // fish too strong — bumps the hook, escapes
+            if (Math.random() < 0.04) popup(`Too strong!`, hook.x, hook.y - 12, '#f88');
+          }
+        }
+      }
+      // Rocks
+      for (const r of rocks) {
+        if (dist(hook.x, hook.y, r.x, r.y) < r.size + 5) {
+          hook.hp--;
+          hook.invuln = 35;
+          hook.vy = -4;
+          popup(`-1`, hook.x + 10, hook.y - 4, '#ff5040');
+          if (hook.hp <= 0) {
+            mode = 'snapped';
+            snapTimer = 90;
+            popup('LINE SNAPPED!', W/2, SURFACE_Y + 60, '#ff3a3a');
+            if (hook.catch.length > 0) popup(`Lost ${hook.catch.length} fish`, W/2, SURFACE_Y + 90, '#ff8870');
+          }
+          break;
+        }
+      }
+    }
+
+    // Camera follows hook
+    if (hook) {
+      const target = Math.max(0, hook.y - SURFACE_Y - 220);
+      camY += (target - camY) * 0.12;
+    } else {
+      camY += (0 - camY) * 0.15;
+    }
+
+    ensureFishPopulation();
+    justPressed = {};
+  }
+
+  // ---------- DRAW ----------
+  function drawBg() {
+    // Sky
+    ctx.fillStyle = '#7ec4e8';
+    ctx.fillRect(0, 0, W, SURFACE_Y);
+    // Water gradient based on camera depth — composite zones
+    // We draw zone bands shifted by camY
+    for (const z of ZONES) {
+      const top = SURFACE_Y + z.start - camY;
+      const bot = SURFACE_Y + z.end - camY;
+      if (bot < SURFACE_Y || top > H) continue;
+      const grad = ctx.createLinearGradient(0, top, 0, bot);
+      grad.addColorStop(0, z.col1);
+      grad.addColorStop(1, z.col2);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, Math.max(SURFACE_Y, top), W, Math.min(H, bot) - Math.max(SURFACE_Y, top));
+    }
+    // Sea bed at very bottom
+    const bedTop = SURFACE_Y + MAX_DEPTH - camY;
+    if (bedTop < H) {
+      ctx.fillStyle = '#1a1208';
+      ctx.fillRect(0, bedTop, W, H - bedTop);
+    }
+    // Sky/water boundary
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fillRect(0, SURFACE_Y - 2, W, 2);
+  }
+
+  function drawDepthRuler() {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '10px system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    const step = 50;
+    const startD = Math.floor(camY / step) * step;
+    for (let d = startD; d < camY + VIEW_DEPTH + step; d += step) {
+      if (d < 0 || d > MAX_DEPTH) continue;
+      const y = SURFACE_Y + d - camY;
+      if (y < SURFACE_Y || y > H) continue;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(8, y); ctx.stroke();
+      ctx.fillText(d + 'm', 10, y + 3);
+    }
+    ctx.restore();
+  }
+
+  function drawZoneLabels() {
+    ctx.save();
+    ctx.textAlign = 'right';
+    ctx.font = 'bold 11px system-ui, sans-serif';
+    for (const z of ZONES) {
+      const mid = SURFACE_Y + (z.start + z.end)/2 - camY;
+      if (mid < SURFACE_Y || mid > H) continue;
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.fillText(z.name.toUpperCase(), W - 8, mid);
+    }
+    ctx.restore();
+  }
+
+  function drawBoat() {
+    const y = SURFACE_Y - 2 - camY * 0.0; // boat fixed at surface
+    const boatY = SURFACE_Y - 2;
+    if (boatY > H || boatY < -20) {} // always near top
+    const b = BOATS[state.boatTier];
+    ctx.save();
+    ctx.translate(boat.x, boatY);
+    // hull
+    ctx.fillStyle = b.col;
+    ctx.beginPath();
+    ctx.moveTo(-26, 0);
+    ctx.lineTo(26, 0);
+    ctx.lineTo(20, 12);
+    ctx.lineTo(-20, 12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // mast / cabin per tier
+    ctx.fillStyle = '#333';
+    if (state.boatTier === 0) {
+      ctx.fillRect(-1, -10, 2, 10);
+    } else if (state.boatTier === 1) {
+      ctx.fillRect(-10, -14, 14, 14);
+    } else if (state.boatTier === 2) {
+      ctx.fillRect(-14, -16, 20, 16);
+      ctx.fillStyle = '#8df'; ctx.fillRect(-10, -12, 4, 6); ctx.fillRect(-2, -12, 4, 6);
+    } else if (state.boatTier === 3) {
+      ctx.fillRect(-18, -18, 26, 18);
+      ctx.fillStyle = '#fc6'; ctx.fillRect(-14, -14, 18, 8);
+    } else {
+      // Submersible: dome
+      ctx.fillStyle = '#ffd24a';
+      ctx.beginPath(); ctx.arc(0, -2, 16, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = '#8df';
+      ctx.beginPath(); ctx.arc(0, -2, 11, Math.PI, 0); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawLine() {
+    if (!hook) return;
+    const hx = hook.x, hy = SURFACE_Y + (hook.y - SURFACE_Y) - camY;
+    ctx.strokeStyle = '#fff';
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(boat.x, SURFACE_Y + 4);
+    ctx.lineTo(hx, hy);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    // hook & catch shown on hook
+    const flash = hook.invuln > 0 && Math.floor(hook.invuln / 4) % 2 === 0;
+    ctx.fillStyle = flash ? '#ff5a5a' : '#ccc';
+    ctx.beginPath();
+    ctx.arc(hx, hy, 5, 0, Math.PI*2);
+    ctx.fill();
+    // tiny silhouettes of caught fish trailing the hook
+    for (let i = 0; i < Math.min(hook.catch.length, 5); i++) {
+      const f = hook.catch[i];
+      ctx.fillStyle = f.col;
+      ctx.fillRect(hx + 8 + i*6, hy - 3, 5, 5);
+    }
+    if (hook.catch.length > 5) {
+      ctx.fillStyle = '#fff';
+      ctx.font = '10px system-ui';
+      ctx.fillText('+' + (hook.catch.length - 5), hx + 8 + 5*6, hy + 2);
+    }
+    // HP pips
+    for (let i = 0; i < state.maxHP; i++) {
+      ctx.fillStyle = i < hook.hp ? '#ff5a5a' : '#332';
+      ctx.fillRect(hx - 10 + i*5, hy - 14, 4, 4);
+    }
+  }
+
+  function drawFish(f) {
+    const y = f.y - camY;
+    if (y < SURFACE_Y - 30 || y > H + 30) return;
+    const x = f.x;
+    const d = f.def;
+    const dir = f.vx >= 0 ? 1 : -1;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(dir, 1);
+    // body
+    ctx.fillStyle = d.col;
+    if (d.long) {
+      ctx.beginPath();
+      ctx.ellipse(0, 0, d.sz, d.sz * 0.35, 0, 0, Math.PI*2);
+      ctx.fill();
+    } else if (d.puff) {
+      ctx.beginPath();
+      ctx.arc(0, 0, d.sz * 0.7, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#333';
+      for (let i = 0; i < 6; i++) {
+        const a = i / 6 * Math.PI * 2;
+        ctx.fillRect(Math.cos(a) * d.sz * 0.6 - 1, Math.sin(a) * d.sz * 0.6 - 1, 2, 4);
+      }
+    } else {
+      ctx.beginPath();
+      ctx.ellipse(0, 0, d.sz, d.sz * 0.5, 0, 0, Math.PI*2);
+      ctx.fill();
+    }
+    // tail
+    ctx.fillStyle = d.col;
+    ctx.beginPath();
+    ctx.moveTo(-d.sz, 0);
+    ctx.lineTo(-d.sz - 8, -6);
+    ctx.lineTo(-d.sz - 8, 6);
+    ctx.closePath();
+    ctx.fill();
+    // stripe
+    if (d.stripe) {
+      ctx.fillStyle = d.stripe;
+      ctx.fillRect(-d.sz*0.3, -d.sz*0.4, 3, d.sz*0.8);
+      ctx.fillRect(d.sz*0.2, -d.sz*0.4, 3, d.sz*0.8);
+    }
+    // sword
+    if (d.sword) {
+      ctx.fillStyle = '#dde';
+      ctx.fillRect(d.sz, -1, 14, 2);
+    }
+    // eye
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(d.sz*0.5, -d.sz*0.15, 2.5, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(d.sz*0.55, -d.sz*0.15, 1.2, 0, Math.PI*2); ctx.fill();
+    // glow lure (anglerfish, lava ray, kraken)
+    if (d.glow) {
+      ctx.fillStyle = d.glow;
+      ctx.globalAlpha = 0.7;
+      ctx.beginPath(); ctx.arc(d.sz*0.6, -d.sz*0.6, 3, 0, Math.PI*2); ctx.fill();
+      ctx.globalAlpha = 0.25;
+      ctx.beginPath(); ctx.arc(d.sz*0.6, -d.sz*0.6, 8, 0, Math.PI*2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
+  function drawRock(r) {
+    const y = r.y - camY;
+    if (y < SURFACE_Y - 60 || y > H + 60) return;
+    ctx.save();
+    ctx.translate(r.x, y);
+    ctx.rotate(r.rot);
+    ctx.fillStyle = '#5a4a3a';
+    ctx.strokeStyle = '#1a1208';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < r.shape.length; i++) {
+      const s = r.shape[i];
+      const px = Math.cos(s.a) * r.size * s.d;
+      const py = Math.sin(s.a) * r.size * s.d;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // jagged highlights
+    ctx.fillStyle = '#3a2c20';
+    ctx.beginPath(); ctx.arc(-r.size*0.3, -r.size*0.2, r.size*0.15, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(r.size*0.25, r.size*0.3, r.size*0.1, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawBubbles() {
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    for (const b of bubbles) {
+      const y = b.y - camY;
+      if (y < SURFACE_Y || y > H) continue;
+      ctx.beginPath(); ctx.arc(b.x, y, b.r, 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  function drawPopups() {
+    ctx.save();
+    ctx.textAlign = 'center';
+    for (const p of popups) {
+      const a = 1 - p.age / p.life;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = p.color;
+      ctx.font = 'bold 14px system-ui, sans-serif';
+      const sy = p.y - camY;
+      ctx.fillText(p.text, p.x, sy);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  function drawHUD() {
+    // top-left depth readout
+    if (hook) {
+      const d = Math.floor(hook.y - SURFACE_Y);
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(0, 0, 140, 22);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 13px system-ui, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(`Depth: ${d} m / ${state.maxLine} m`, 6, 16);
+    }
+    if (mode === 'snapped') {
+      ctx.fillStyle = 'rgba(60,0,0,0.45)';
+      ctx.fillRect(0, 0, W, H);
+    }
+  }
+
+  function draw() {
+    drawBg();
+    drawDepthRuler();
+    drawZoneLabels();
+    for (const f of fishes) drawFish(f);
+    for (const r of rocks) drawRock(r);
+    drawBubbles();
+    drawLine();
+    drawBoat();
+    drawPopups();
+    drawHUD();
+  }
+
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  // ---------- SHOP / UI ----------
+  function upgradeCost(u) {
+    return Math.floor(u.base * Math.pow(u.factor, state.levels[u.key]));
+  }
+  function buyUpgrade(key) {
+    const u = UPGRADES.find(x => x.key === key);
+    if (!u) return;
+    if (state.levels[u.key] >= u.max) return;
+    const cost = upgradeCost(u);
+    if (state.coins < cost) return;
+    state.coins -= cost;
+    state.levels[u.key]++;
+    state[u.key] = +(state[u.key] + u.step).toFixed(2);
+    save(); refreshPanel();
+  }
+  function buyBoat() {
+    if (state.boatTier >= BOATS.length - 1) return;
+    const cost = boatCost(state.boatTier + 1);
+    if (state.coins < cost) return;
+    state.coins -= cost;
+    state.boatTier++;
+    save(); refreshPanel();
+  }
+  function boatCost(tier) {
+    const costs = [0, 200, 1200, 6000, 24000];
+    return costs[tier];
+  }
+
+  function refreshPanel() {
+    document.getElementById('s-coins').textContent = state.coins;
+    document.getElementById('s-boat').textContent = BOATS[state.boatTier].name;
+    document.getElementById('s-bonus').textContent = 'x' + BOATS[state.boatTier].mult.toFixed(2);
+    document.getElementById('s-line').textContent = state.maxLine + ' m';
+    document.getElementById('s-str').textContent = state.strength;
+    document.getElementById('s-reel').textContent = state.reelSpeed.toFixed(1);
+    document.getElementById('s-hp').textContent = state.maxHP;
+    document.getElementById('s-total').textContent = state.totalFish;
+    document.getElementById('s-deep').textContent = state.deepest + ' m';
+
+    const shop = document.getElementById('shop');
+    shop.innerHTML = '';
+    for (const u of UPGRADES) {
+      const lv = state.levels[u.key];
+      const maxed = lv >= u.max;
+      const cost = upgradeCost(u);
+      const btn = document.createElement('button');
+      btn.className = 'shop-btn' + (maxed ? ' maxed' : '');
+      btn.disabled = maxed || state.coins < cost;
+      btn.innerHTML = `<span class="lv">[${lv}/${u.max}]</span> ${u.label} <span class="cost">${maxed ? 'MAX' : cost + 'c'}</span><br><small style="opacity:0.6">${u.stat}</small>`;
+      btn.onclick = () => buyUpgrade(u.key);
+      shop.appendChild(btn);
+    }
+    // Boat button
+    const boatBtn = document.createElement('button');
+    const nextTier = state.boatTier + 1;
+    if (nextTier >= BOATS.length) {
+      boatBtn.className = 'shop-btn maxed';
+      boatBtn.disabled = true;
+      boatBtn.innerHTML = `Boat: <b>${BOATS[state.boatTier].name}</b> <span class="cost">MAX</span><br><small style="opacity:0.6">x${BOATS[state.boatTier].mult} catch bonus</small>`;
+    } else {
+      const cost = boatCost(nextTier);
+      boatBtn.className = 'shop-btn';
+      boatBtn.disabled = state.coins < cost;
+      boatBtn.innerHTML = `Upgrade boat: <b>${BOATS[nextTier].name}</b> <span class="cost">${cost}c</span><br><small style="opacity:0.6">x${BOATS[nextTier].mult} catch bonus</small>`;
+      boatBtn.onclick = buyBoat;
+    }
+    shop.appendChild(boatBtn);
+  }
+  document.getElementById('reset-btn').onclick = () => {
+    if (confirm('Reset all progress?')) {
+      localStorage.removeItem(SAVE_KEY);
+      state = defaultState();
+      save();
+      refreshPanel();
+    }
+  };
+  refreshPanel();
+
+  loop();
+})();
+</script>
+</body>
+</html>
