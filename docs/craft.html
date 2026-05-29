@@ -102,7 +102,7 @@
     background: rgba(0,0,0,.6); padding: 7px 14px; border-radius: 8px; font-size: 13px;
     opacity: 0; transition: opacity .25s; pointer-events: none;
   }
-  #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  #loading { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
              background: #0f1120; z-index: 40; font-size: 18px; flex-direction: column; gap: 12px; }
   #loading .bar { width: 220px; height: 8px; background: #2a2f4a; border-radius: 4px; overflow: hidden; }
   #loading .fill { height: 100%; width: 0; background: #2f9e44; transition: width .2s; }
@@ -727,7 +727,7 @@ function processBuildQueue(budget){
   while(game.buildQueue.length && n<budget){
     const key=game.buildQueue.shift();
     const [cx,cz]=key.split(',').map(Number);
-    rebuildChunk(cx,cz);
+    try{ rebuildChunk(cx,cz); }catch(err){ console.error('chunk build failed', err); }
     n++;
   }
 }
@@ -1309,27 +1309,28 @@ function startWorld(opts){
   hidePanels();
   $('#loading').style.display='flex';
   game.running=false;
-  // preload columns for streaming target then build a small core immediately
+  // Build only a small spawn area before entering; the rest streams in while
+  // playing. This keeps "enter world" near-instant on any device.
   const pcx=Math.floor(game.pos.x/CHUNK), pcz=Math.floor(game.pos.z/CHUNK);
+  const coreR=Math.min(2, game.renderDistance);
   const core=[];
-  const R=game.renderDistance;
-  for(let dz=-R;dz<=R;dz++) for(let dx=-R;dx<=R;dx++){ if(dx*dx+dz*dz<=(R+0.5)*(R+0.5)) core.push([pcx+dx,pcz+dz,dx*dx+dz*dz]); }
+  for(let dz=-coreR;dz<=coreR;dz++) for(let dx=-coreR;dx<=coreR;dx++) core.push([pcx+dx,pcz+dz,dx*dx+dz*dz]);
   core.sort((a,b)=>a[2]-b[2]);
   let i=0;
   function step(){
     const end=Math.min(core.length, i+6);
-    for(;i<end;i++) rebuildChunk(core[i][0], core[i][1]);
+    for(;i<end;i++){ try{ rebuildChunk(core[i][0], core[i][1]); }catch(err){ console.error('chunk build failed', err); } }
     $('#loadFill').style.width=Math.round(i/core.length*100)+'%';
     if(i<core.length){ requestAnimationFrame(step); }
     else {
       // drop player onto ground safely
-      let gy=groundY(game.pos.x,game.pos.z);
+      const gy=groundY(game.pos.x,game.pos.z);
       if(!opts.restore) game.pos.y=gy+0.1;
       $('#loading').style.display='none';
       $('#exitBtn').style.display='block';
       renderHotbar();
       game.running=true; game.paused=false; game.dead=false;
-      requestPointer();
+      requestPointer();   // remaining chunks now stream via the main loop
     }
   }
   requestAnimationFrame(step);
@@ -1351,12 +1352,12 @@ function loop(){
     spawnMobs();
     updateMobs(dt);
     streamChunks();
-    processBuildQueue(2);
+    processBuildQueue(3);
     updateSky(dt);
     updateHUD();
   } else {
     // keep building queued chunks even while paused/loading-after
-    processBuildQueue(2);
+    processBuildQueue(3);
   }
   game.renderer.render(game.scene, game.camera);
 }
