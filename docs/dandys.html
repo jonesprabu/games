@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dandy's World — Fan Tribute (3D)</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html,body { margin:0; height:100%; overflow:hidden; background:#10121b; color:#f3f0ff;
+    font-family: 'Trebuchet MS', system-ui, sans-serif; user-select:none; }
+  #game { position:fixed; inset:0; }
+  canvas { display:block; }
+
+  /* vignette / proximity scare */
+  #vignette { position:fixed; inset:0; pointer-events:none; z-index:5;
+    box-shadow: inset 0 0 200px 40px rgba(120,0,0,0); transition: box-shadow .15s; }
+
+  /* HUD */
+  #hud { position:fixed; inset:0; pointer-events:none; z-index:6; display:none; }
+  #hearts { position:absolute; top:12px; left:14px; font-size:26px; letter-spacing:2px; filter:drop-shadow(0 2px 2px #000); }
+  #topcenter { position:absolute; top:12px; left:50%; transform:translateX(-50%); text-align:center; text-shadow:0 2px 4px #000; }
+  #topcenter .floor { font-size:22px; font-weight:bold; }
+  #topcenter .obj { font-size:14px; opacity:.9; }
+  #ichor { position:absolute; top:12px; right:14px; font-size:18px; font-weight:bold; text-shadow:0 2px 3px #000; }
+  #ichor small { font-weight:normal; opacity:.7; }
+  #stamWrap { position:absolute; bottom:18px; left:50%; transform:translateX(-50%); width:240px; }
+  #stamBar { height:12px; background:rgba(0,0,0,.45); border:2px solid #2a2f45; border-radius:8px; overflow:hidden; }
+  #stamFill { height:100%; width:100%; background:linear-gradient(90deg,#3ad17a,#2fa85f); transition:width .08s; }
+  #extractWrap { position:absolute; bottom:54px; left:50%; transform:translateX(-50%); width:300px; text-align:center; }
+  #extractBar { height:14px; background:rgba(0,0,0,.45); border:2px solid #2a2f45; border-radius:8px; overflow:hidden; }
+  #extractFill { height:100%; width:0%; background:linear-gradient(90deg,#ffd34d,#ff9d2f); transition:width .15s; }
+  #extractWrap .lbl { font-size:12px; opacity:.85; margin-bottom:3px; }
+
+  /* skill check */
+  #skill { position:absolute; bottom:96px; left:50%; transform:translateX(-50%); width:340px; display:none; text-align:center; }
+  #skillTrack { position:relative; height:26px; background:rgba(0,0,0,.5); border:2px solid #3a3f60; border-radius:6px; overflow:hidden; }
+  #skillZone { position:absolute; top:0; bottom:0; background:rgba(80,230,140,.5); border-left:2px solid #8effc0; border-right:2px solid #8effc0; }
+  #skillCursor { position:absolute; top:-3px; bottom:-3px; width:4px; background:#fff; box-shadow:0 0 8px #fff; }
+  #skill .hint { font-size:12px; margin-top:4px; opacity:.9; }
+
+  /* interaction prompt */
+  #prompt { position:absolute; bottom:140px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.55);
+    padding:6px 14px; border-radius:999px; font-size:14px; display:none; }
+  #prompt b { color:#ffd34d; }
+
+  /* panels */
+  .panel { position:fixed; inset:0; z-index:20; display:none; align-items:center; justify-content:center;
+    background:radial-gradient(ellipse at center, rgba(40,20,60,.85), rgba(8,8,16,.95)); backdrop-filter:blur(3px); }
+  .panel.show { display:flex; }
+  .box { background:linear-gradient(160deg,#241a3a,#15101f); border:2px solid #4a3d6b; border-radius:18px;
+    padding:24px 28px; width:min(860px,94vw); max-height:92vh; overflow:auto; box-shadow:0 24px 70px rgba(0,0,0,.6); }
+  h1 { margin:0 0 2px; font-size:34px; letter-spacing:1px; color:#ffd34d; text-shadow:0 2px 0 #6b4b00; }
+  .tag { margin:0 0 16px; opacity:.7; font-size:13px; }
+  .btn { cursor:pointer; border:none; border-radius:12px; padding:13px 22px; font-size:16px; font-weight:bold; color:#1a0f00;
+    background:linear-gradient(135deg,#ffe07a,#ffb13d); margin:6px 8px 6px 0; font-family:inherit; }
+  .btn:hover { filter:brightness(1.08); transform:translateY(-1px); }
+  .btn.sec { background:linear-gradient(135deg,#6c5ce7,#4b3fb8); color:#fff; }
+  .btn.gray { background:linear-gradient(135deg,#4a4f6b,#33384f); color:#fff; }
+  .btn:disabled { opacity:.45; cursor:not-allowed; transform:none; }
+  .toons { display:grid; grid-template-columns:repeat(auto-fill,118px); gap:10px; margin:6px 0 14px; }
+  .tcard { background:rgba(255,255,255,.05); border:2px solid #38304f; border-radius:14px; padding:8px; text-align:center; cursor:pointer; position:relative; }
+  .tcard:hover { border-color:#ffd34d; }
+  .tcard.sel { border-color:#ffd34d; box-shadow:0 0 0 2px rgba(255,211,77,.5); }
+  .tcard.locked { opacity:.85; }
+  .tcard canvas { width:84px; height:84px; }
+  .tcard .nm { font-size:13px; font-weight:bold; margin-top:2px; }
+  .tcard .pr { font-size:11px; color:#ffd34d; }
+  .tcard .lk { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:30px;
+    background:rgba(10,8,16,.45); border-radius:12px; }
+  .stats { font-size:12px; line-height:1.7; }
+  .stats .row { display:flex; align-items:center; gap:8px; }
+  .stats .row span { width:78px; opacity:.8; }
+  .pips { letter-spacing:1px; }
+  .flexwrap { display:flex; gap:20px; flex-wrap:wrap; }
+  .col { flex:1; min-width:240px; }
+  #ichorTop { position:absolute; top:18px; right:24px; font-size:16px; font-weight:bold; color:#ffd34d; }
+  a.back { position:fixed; top:8px; left:50%; transform:translateX(-50%); z-index:30; color:#fff;
+    background:rgba(0,0,0,.4); padding:4px 12px; border-radius:999px; text-decoration:none; font-size:12px; display:none; }
+  #loading { position:fixed; inset:0; z-index:40; display:none; align-items:center; justify-content:center;
+    background:#0c0a14; flex-direction:column; gap:14px; font-size:18px; }
+  #loading .bar { width:240px; height:8px; background:#26213a; border-radius:4px; overflow:hidden; }
+  #loading .fill { height:100%; width:0; background:#ffb13d; transition:width .15s; }
+  #toast { position:fixed; top:64px; left:50%; transform:translateX(-50%); z-index:25; background:rgba(0,0,0,.65);
+    padding:8px 16px; border-radius:10px; font-size:15px; opacity:0; transition:opacity .25s; pointer-events:none; }
+  .keys b { display:inline-block; min-width:120px; color:#ffd34d; }
+  .keys { font-size:14px; line-height:1.9; }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="vignette"></div>
+
+<div id="hud">
+  <div id="hearts"></div>
+  <div id="topcenter"><div class="floor" id="floorLbl">Floor 1</div><div class="obj" id="objLbl"></div></div>
+  <div id="ichor"></div>
+  <div id="prompt"></div>
+  <div id="extractWrap"><div class="lbl" id="extractLbl">Machines</div><div id="extractBar"><div id="extractFill"></div></div></div>
+  <div id="skill"><div id="skillTrack"><div id="skillZone"></div><div id="skillCursor"></div></div><div class="hint">Press <b>SPACE</b> in the green zone!</div></div>
+  <div id="stamWrap"><div id="stamBar"><div id="stamFill"></div></div></div>
+</div>
+
+<a class="back" id="exitBtn" href="index.html">&larr; Arcade</a>
+<div id="toast"></div>
+
+<!-- Lobby -->
+<div class="panel show" id="lobby">
+  <div class="box">
+    <div id="ichorTop"></div>
+    <h1>Dandy's World</h1>
+    <p class="tag">Unofficial fan tribute · 3D · Phase 1 (single-player). Complete machines, ride the elevator down, survive the Twisteds.</p>
+    <div class="flexwrap">
+      <div class="col">
+        <h2 style="margin:0 0 6px;font-size:16px">Pick your Toon</h2>
+        <div class="toons" id="toonGrid"></div>
+      </div>
+      <div class="col" style="max-width:280px">
+        <h2 style="margin:0 0 6px;font-size:16px" id="selName">—</h2>
+        <div class="stats" id="selStats"></div>
+        <div id="selAction" style="margin-top:12px"></div>
+      </div>
+    </div>
+    <div style="margin-top:8px">
+      <button class="btn" id="playBtn">▶ Enter the Elevator</button>
+      <button class="btn gray" id="howBtn">？ How to play</button>
+    </div>
+    <div id="howBox" class="keys" style="display:none;margin-top:12px">
+      <div><b>Move</b> W A S D / Arrows</div>
+      <div><b>Sprint</b> Shift (uses stamina)</div>
+      <div><b>Skill check</b> Space (while at a machine)</div>
+      <div><b>Pause</b> Esc</div>
+      <div style="margin-top:8px;opacity:.85">Stand on a <b>machine</b> to research it. Finish enough machines to power the
+      <b>elevator</b>, then run to it to go deeper. <b>Twisteds</b> chase you on sight — break line of sight to lose them.
+      Every 5th floor is a <b>blackout</b>: it's dark and something faster is loose.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Pause -->
+<div class="panel" id="pause">
+  <div class="box" style="text-align:center;max-width:420px">
+    <h1 style="font-size:26px">Paused</h1>
+    <p class="tag" id="pauseInfo"></p>
+    <button class="btn" id="resumeBtn">Resume</button>
+    <button class="btn gray" id="lobbyBtn">Leave run</button>
+  </div>
+</div>
+
+<!-- Floor clear -->
+<div class="panel" id="clear">
+  <div class="box" style="text-align:center;max-width:440px">
+    <h1 id="clearTitle">Floor cleared!</h1>
+    <p class="tag" id="clearInfo"></p>
+    <button class="btn" id="nextBtn">Descend ▼</button>
+  </div>
+</div>
+
+<!-- Game over -->
+<div class="panel" id="over">
+  <div class="box" style="text-align:center;max-width:460px">
+    <h1 style="color:#ff6b6b;text-shadow:0 2px 0 #5a0000">You got Twisted!</h1>
+    <p class="tag" id="overInfo"></p>
+    <button class="btn" id="overLobby">Back to lobby</button>
+  </div>
+</div>
+
+<div id="loading"><div>Building floor…</div><div class="bar"><div class="fill" id="loadFill"></div></div></div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+/* =====================================================================
+   Dandy's World — fan tribute, 3D third-person.
+   Systems: Roster (toons) · Floor gen · Models · Player · Twisteds (AI)
+            · Machines/skill-checks · Camera · HUD · Save · Game loop
+   ===================================================================== */
+const $=s=>document.querySelector(s);
+
+// ---- tuning ----
+const TILE=4;                 // world units per grid tile
+const WALLH=6;
+const MW=46, MH=34;           // map size in tiles
+const PR=1.3;                 // player radius
+const TR=1.5;                 // twisted radius
+
+// ---- roster (stats are 1..5; cute look approximated, fan tribute) ----
+// type drives the drawn accent; color is the toon's main color.
+const TOONS = [
+  { id:'boxten', name:'Boxten', type:'box',    color:0x9a6b3f, hearts:3, speed:3, stam:3, skill:3, stealth:3, extract:3, price:0,
+    blurb:'A wind-up music box. All-rounder.' },
+  { id:'poppy',  name:'Poppy',  type:'rabbit', color:0xff9ec4, hearts:2, speed:4, stam:4, skill:3, stealth:3, extract:2, price:0,
+    blurb:'A jumpy rabbit. Fast and springy.' },
+  { id:'sprout', name:'Sprout', type:'plant',  color:0x66c24a, hearts:3, speed:3, stam:3, skill:3, stealth:4, extract:3, price:0,
+    blurb:'A little chef-sprout. Sneaky.' },
+  { id:'astro',  name:'Astro',  type:'star',   color:0x6b78f2, hearts:3, speed:3, stam:5, skill:2, stealth:3, extract:3, price:200,
+    blurb:'A sleepy star. Endless stamina.' },
+  { id:'vee',    name:'Vee',    type:'tv',      color:0x2bb3a3, hearts:2, speed:3, stam:3, skill:5, stealth:2, extract:4, price:300,
+    blurb:'A TV host. Aces skill-checks.' },
+  { id:'toodles',name:'Toodles',type:'toy',    color:0xb06cf0, hearts:2, speed:4, stam:3, skill:4, stealth:3, extract:3, price:300,
+    blurb:'A bouncy toy. Quick fingers.' },
+  { id:'finn',   name:'Finn',   type:'fish',   color:0x3a9ad9, hearts:4, speed:2, stam:3, skill:3, stealth:2, extract:3, price:350,
+    blurb:'A sturdy shark. Lots of hearts.' },
+  { id:'cosmo',  name:'Cosmo',  type:'flower', color:0xffcf57, hearts:3, speed:3, stam:3, skill:3, stealth:5, extract:4, price:450,
+    blurb:'A gentle flower. Very stealthy.' },
+];
+const TWISTED_COLORS=[0x6b1f1f,0x1f4f6b,0x3a1f6b,0x6b5a1f,0x1f6b33];
+
+// ---- save ----
+const SAVE_KEY='dandys_save_v1';
+function loadSave(){ try{ return JSON.parse(localStorage.getItem(SAVE_KEY))||{}; }catch(e){ return {}; } }
+function writeSave(){ localStorage.setItem(SAVE_KEY, JSON.stringify(save)); }
+let save=loadSave();
+if(save.ichor===undefined) save.ichor=0;
+if(!save.unlocked) save.unlocked=['boxten','poppy','sprout'];
+if(save.best===undefined) save.best=0;
+
+// =====================================================================
+//  2D toon icon for menu cards (cute)
+// =====================================================================
+function drawToonIcon(cv, toon){
+  const g=cv.getContext('2d'), s=cv.width; g.clearRect(0,0,s,s);
+  const cx=s/2, cy=s/2+6, R=s*0.30, col='#'+toon.color.toString(16).padStart(6,'0');
+  g.save();
+  // accent behind
+  g.fillStyle=col;
+  if(toon.type==='rabbit'){ for(const dx of [-R*0.5,R*0.5]){ g.beginPath(); g.ellipse(cx+dx,cy-R*1.1,R*0.22,R*0.7,0,0,7); g.fill(); } }
+  if(toon.type==='plant'){ g.beginPath(); g.moveTo(cx,cy-R*1.6); g.lineTo(cx-R*0.4,cy-R*0.9); g.lineTo(cx+R*0.4,cy-R*0.9); g.fill(); }
+  if(toon.type==='star'){ g.fillStyle='#ffe07a'; star(g,cx,cy-R*1.3,R*0.4,R*0.18,5); }
+  if(toon.type==='flower'){ g.fillStyle='#ff9ec4'; for(let i=0;i<6;i++){ const a=i/6*7; g.beginPath(); g.ellipse(cx+Math.cos(a)*R*0.7, cy-R*0.2+Math.sin(a)*R*0.7, R*0.28,R*0.16,a,0,7); g.fill(); } }
+  // body
+  g.fillStyle=col; roundedBody(g,cx,cy,R);
+  // tv screen / head face base
+  if(toon.type==='tv'){ g.fillStyle='#0c1a1a'; g.fillRect(cx-R*0.6,cy-R*0.5,R*1.2,R*0.9); }
+  // eyes
+  const ey=cy-R*0.15, ex=R*0.34;
+  for(const dx of [-ex,ex]){ g.fillStyle='#fff'; g.beginPath(); g.arc(cx+dx,ey,R*0.22,0,7); g.fill();
+    g.fillStyle='#222'; g.beginPath(); g.arc(cx+dx,ey+R*0.03,R*0.10,0,7); g.fill(); }
+  // smile
+  g.strokeStyle='#3a2a2a'; g.lineWidth=Math.max(2,R*0.08); g.beginPath(); g.arc(cx,cy+R*0.18,R*0.22,0.15*Math.PI,0.85*Math.PI); g.stroke();
+  // fish fin
+  if(toon.type==='fish'){ g.fillStyle=col; g.beginPath(); g.moveTo(cx,cy-R); g.lineTo(cx-R*0.3,cy-R*1.5); g.lineTo(cx+R*0.3,cy-R*1.2); g.fill(); }
+  if(toon.type==='box'){ g.strokeStyle='#5a3a1a'; g.lineWidth=2; g.beginPath(); g.arc(cx+R*0.9,cy-R*0.6,R*0.18,0,7); g.stroke(); }
+  g.restore();
+}
+function roundedBody(g,cx,cy,R){ g.beginPath(); g.moveTo(cx-R,cy+R*0.6); g.quadraticCurveTo(cx-R,cy-R,cx,cy-R); g.quadraticCurveTo(cx+R,cy-R,cx+R,cy+R*0.6); g.quadraticCurveTo(cx+R,cy+R*1.1,cx,cy+R*1.1); g.quadraticCurveTo(cx-R,cy+R*1.1,cx-R,cy+R*0.6); g.fill(); }
+function star(g,cx,cy,ro,ri,n){ g.beginPath(); for(let i=0;i<n*2;i++){ const a=-Math.PI/2+i*Math.PI/n; const r=i%2?ri:ro; g[i?'lineTo':'moveTo'](cx+Math.cos(a)*r,cy+Math.sin(a)*r);} g.closePath(); g.fill(); }
+
+// =====================================================================
+//  3D models
+// =====================================================================
+function makeToonModel(toon){
+  const grp=new THREE.Group();
+  const mat=new THREE.MeshLambertMaterial({color:toon.color});
+  const matD=new THREE.MeshLambertMaterial({color:new THREE.Color(toon.color).multiplyScalar(0.85)});
+  // body
+  const body=new THREE.Mesh(new THREE.CapsuleGeometry(1.2,1.4,6,12), mat); body.position.y=1.8; grp.add(body);
+  // head
+  const head=new THREE.Mesh(new THREE.SphereGeometry(1.05,16,14), mat); head.position.y=3.3; grp.add(head);
+  // eyes (front = +z)
+  const white=new THREE.MeshLambertMaterial({color:0xffffff});
+  const black=new THREE.MeshBasicMaterial({color:0x222222});
+  for(const dx of [-0.42,0.42]){
+    const e=new THREE.Mesh(new THREE.SphereGeometry(0.34,12,10), white); e.position.set(dx,3.35,0.85); grp.add(e);
+    const p=new THREE.Mesh(new THREE.SphereGeometry(0.16,10,8), black); p.position.set(dx,3.32,1.12); grp.add(p);
+  }
+  // feet
+  for(const dx of [-0.55,0.55]){ const f=new THREE.Mesh(new THREE.BoxGeometry(0.7,0.5,0.9), matD); f.position.set(dx,0.3,0.2); grp.add(f); }
+  // accents per type
+  const acc=new THREE.MeshLambertMaterial({color:toon.color});
+  if(toon.type==='rabbit'){ for(const dx of [-0.5,0.5]){ const ear=new THREE.Mesh(new THREE.CapsuleGeometry(0.22,1.2,4,8), acc); ear.position.set(dx,4.6,0); grp.add(ear);} }
+  if(toon.type==='star'){ const a=new THREE.Mesh(new THREE.SphereGeometry(0.18,8,8), acc); a.position.set(0,4.7,0); grp.add(a);
+    const st=new THREE.Mesh(new THREE.IcosahedronGeometry(0.5,0), new THREE.MeshBasicMaterial({color:0xffe07a})); st.position.set(0,5.4,0); grp.add(st); }
+  if(toon.type==='plant'){ const leaf=new THREE.Mesh(new THREE.ConeGeometry(0.4,1.0,4), new THREE.MeshLambertMaterial({color:0x3f9e2e})); leaf.position.set(0,4.5,0); grp.add(leaf); }
+  if(toon.type==='tv'){ head.geometry=new THREE.BoxGeometry(1.9,1.6,1.6); const screen=new THREE.Mesh(new THREE.PlaneGeometry(1.5,1.1), new THREE.MeshBasicMaterial({color:0x0c2a2a})); screen.position.set(0,3.35,0.81); grp.add(screen);
+    const ant=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,1,6), matD); ant.position.set(0.3,4.6,0); ant.rotation.z=0.4; grp.add(ant); }
+  if(toon.type==='fish'){ const fin=new THREE.Mesh(new THREE.ConeGeometry(0.5,1.1,4), acc); fin.position.set(0,4.5,-0.2); fin.rotation.x=-0.3; grp.add(fin); }
+  if(toon.type==='flower'){ for(let i=0;i<6;i++){ const pe=new THREE.Mesh(new THREE.SphereGeometry(0.4,8,8), new THREE.MeshLambertMaterial({color:0xff9ec4})); const a=i/6*Math.PI*2; pe.position.set(Math.cos(a)*1.0,3.3,Math.sin(a)*1.0); pe.scale.set(1,0.4,1); grp.add(pe);} }
+  if(toon.type==='toy'){ for(const dx of [-0.7,0.7]){ const pig=new THREE.Mesh(new THREE.SphereGeometry(0.35,8,8), acc); pig.position.set(dx,4.0,0); grp.add(pig);} }
+  if(toon.type==='box'){ const crank=new THREE.Mesh(new THREE.TorusGeometry(0.3,0.08,6,12), matD); crank.position.set(1.25,2.0,0); crank.rotation.y=Math.PI/2; grp.add(crank); }
+  grp.userData.head=head; grp.userData.body=body;
+  return grp;
+}
+function makeTwistedModel(color){
+  const grp=new THREE.Group();
+  const dark=new THREE.MeshLambertMaterial({color:new THREE.Color(color).multiplyScalar(0.5)});
+  const body=new THREE.Mesh(new THREE.CapsuleGeometry(1.4,2.2,6,12), dark); body.position.y=2.3; grp.add(body);
+  const head=new THREE.Mesh(new THREE.SphereGeometry(1.2,14,12), dark); head.position.y=4.2; grp.add(head);
+  // glowing eyes
+  const glow=new THREE.MeshBasicMaterial({color:0xff2a2a});
+  for(const dx of [-0.5,0.5]){ const e=new THREE.Mesh(new THREE.SphereGeometry(0.28,10,8), glow); e.position.set(dx,4.3,1.0); grp.add(e); }
+  // jagged teeth
+  const teeth=new THREE.MeshBasicMaterial({color:0xeeeeee});
+  for(let i=-2;i<=2;i++){ const t=new THREE.Mesh(new THREE.ConeGeometry(0.13,0.5,4), teeth); t.position.set(i*0.32,3.55,1.05); t.rotation.x=Math.PI; grp.add(t); }
+  // drippy arms
+  for(const dx of [-1.5,1.5]){ const arm=new THREE.Mesh(new THREE.CapsuleGeometry(0.4,1.8,4,8), dark); arm.position.set(dx,2.4,0); grp.add(arm); }
+  grp.userData.eyes=glow;
+  return grp;
+}
+function makeMachineModel(){
+  const grp=new THREE.Group();
+  const base=new THREE.Mesh(new THREE.BoxGeometry(2.6,2.4,2.0), new THREE.MeshLambertMaterial({color:0x40465e})); base.position.y=1.2; grp.add(base);
+  const panel=new THREE.Mesh(new THREE.PlaneGeometry(1.8,1.2), new THREE.MeshBasicMaterial({color:0x10202a})); panel.position.set(0,1.5,1.01); grp.add(panel);
+  const light=new THREE.Mesh(new THREE.SphereGeometry(0.22,10,8), new THREE.MeshBasicMaterial({color:0xff5555})); light.position.set(0,2.6,0); grp.add(light);
+  grp.userData.light=light; grp.userData.panel=panel;
+  return grp;
+}
+function makeElevatorModel(){
+  const grp=new THREE.Group();
+  const frame=new THREE.Mesh(new THREE.BoxGeometry(5,6,1.2), new THREE.MeshLambertMaterial({color:0x2a2f45})); frame.position.y=3; grp.add(frame);
+  const door=new THREE.Mesh(new THREE.PlaneGeometry(3.6,5), new THREE.MeshBasicMaterial({color:0x221a33})); door.position.set(0,2.8,0.62); grp.add(door);
+  grp.userData.door=door; grp.userData.frame=frame;
+  return grp;
+}
+
+// =====================================================================
+//  Floor generation (rooms + corridors)
+// =====================================================================
+function mulberry32(a){ return function(){ a|=0;a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+const WALL=1, FLOOR=0;
+function genFloor(seed){
+  const rng=mulberry32(seed);
+  const grid=new Uint8Array(MW*MH).fill(WALL);
+  const rooms=[];
+  const tries=60;
+  for(let t=0;t<tries && rooms.length<11;t++){
+    const w=4+((rng()*5)|0), h=4+((rng()*4)|0);
+    const x=1+((rng()*(MW-w-2))|0), y=1+((rng()*(MH-h-2))|0);
+    let ok=true;
+    for(const r of rooms){ if(x< r.x+r.w+1 && x+w+1> r.x && y< r.y+r.h+1 && y+h+1> r.y){ ok=false; break; } }
+    if(!ok) continue;
+    for(let yy=y;yy<y+h;yy++) for(let xx=x;xx<x+w;xx++) grid[yy*MW+xx]=FLOOR;
+    rooms.push({x,y,w,h,cx:(x+w/2)|0,cy:(y+h/2)|0});
+  }
+  // connect rooms in order with L corridors (width 2)
+  const carveH=(x0,x1,y)=>{ for(let x=Math.min(x0,x1);x<=Math.max(x0,x1);x++){ grid[y*MW+x]=FLOOR; if(y+1<MH) grid[(y+1)*MW+x]=FLOOR; } };
+  const carveV=(y0,y1,x)=>{ for(let y=Math.min(y0,y1);y<=Math.max(y0,y1);y++){ grid[y*MW+x]=FLOOR; if(x+1<MW) grid[y*MW+x+1]=FLOOR; } };
+  for(let i=1;i<rooms.length;i++){ const a=rooms[i-1], b=rooms[i]; if(rng()<0.5){ carveH(a.cx,b.cx,a.cy); carveV(a.cy,b.cy,b.cx); } else { carveV(a.cy,b.cy,a.cx); carveH(a.cx,b.cx,b.cy); } }
+  return { grid, rooms };
+}
+
+// =====================================================================
+//  Game state + Three setup
+// =====================================================================
+const game={
+  renderer:null, scene:null, camera:null,
+  toon:TOONS[0], selId:'boxten',
+  state:'lobby',     // lobby | playing | paused | clear | over
+  floor:1, seed:0, grid:null, rooms:null,
+  worldGroup:null, wallMesh:null,
+  player:null, ppos:new THREE.Vector3(), pvel:new THREE.Vector3(), face:0,
+  hearts:3, maxHearts:3, stam:1, iframes:0, noise:0, runIchor:0,
+  machines:[], machineNeeded:0, machineDone:0, researching:null,
+  skill:null,
+  elevator:null, elevatorReady:false,
+  twisteds:[],
+  dark:false, playerLight:null,
+  keys:{},
+  clock:new THREE.Clock(),
+  camYaw:0,
+};
+
+function initThree(){
+  const renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  renderer.setSize(innerWidth,innerHeight);
+  $('#game').appendChild(renderer.domElement);
+  const scene=new THREE.Scene();
+  scene.background=new THREE.Color(0x12101c);
+  scene.fog=new THREE.Fog(0x12101c, 60, 150);
+  const camera=new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.1, 600);
+  game.hemi=new THREE.HemisphereLight(0xbcc6ff, 0x20202c, 0.85); scene.add(game.hemi);
+  game.dir=new THREE.DirectionalLight(0xffffff,0.7); game.dir.position.set(40,80,30); scene.add(game.dir);
+  game.playerLight=new THREE.PointLight(0xffe6b0, 0, 40, 2); scene.add(game.playerLight);
+  game.renderer=renderer; game.scene=scene; game.camera=camera;
+  addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
+}
+
+// facility floor texture
+function floorTexture(){
+  const c=document.createElement('canvas'); c.width=c.height=64; const g=c.getContext('2d');
+  g.fillStyle='#1b1a28'; g.fillRect(0,0,64,64);
+  g.strokeStyle='#262539'; g.lineWidth=3; g.strokeRect(0,0,64,64);
+  g.fillStyle='#222135'; for(let i=0;i<30;i++) g.fillRect((Math.random()*64)|0,(Math.random()*64)|0,2,2);
+  const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(MW,MH); return t;
+}
+function wallTexture(){
+  const c=document.createElement('canvas'); c.width=c.height=32; const g=c.getContext('2d');
+  g.fillStyle='#3a3550'; g.fillRect(0,0,32,32); g.strokeStyle='#2c2840'; g.lineWidth=2;
+  for(let y=0;y<32;y+=8) g.strokeRect(0,y,32,8); const t=new THREE.CanvasTexture(c); return t;
+}
+
+// =====================================================================
+//  Build a floor in the scene
+// =====================================================================
+function tileToWorld(tx,ty){ return [tx*TILE+TILE/2, ty*TILE+TILE/2]; }
+function isWallTile(tx,ty){ if(tx<0||ty<0||tx>=MW||ty>=MH) return true; return game.grid[ty*MW+tx]===WALL; }
+
+function buildFloor(){
+  // clear old world
+  if(game.worldGroup){ game.scene.remove(game.worldGroup); disposeGroup(game.worldGroup); }
+  const grp=new THREE.Group(); game.worldGroup=grp; game.scene.add(grp);
+  game.dark = (game.floor%5===0);
+
+  const data=genFloor(game.seed);
+  game.grid=data.grid; game.rooms=data.rooms;
+
+  // floor plane
+  const floorMat=new THREE.MeshLambertMaterial({map:floorTexture()});
+  const floor=new THREE.Mesh(new THREE.PlaneGeometry(MW*TILE,MH*TILE), floorMat);
+  floor.rotation.x=-Math.PI/2; floor.position.set(MW*TILE/2,0,MH*TILE/2); grp.add(floor);
+
+  // walls (only those adjacent to a floor tile) via InstancedMesh
+  const wallPos=[];
+  for(let ty=0;ty<MH;ty++) for(let tx=0;tx<MW;tx++){
+    if(game.grid[ty*MW+tx]!==WALL) continue;
+    let border=false;
+    for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]){ const nx=tx+dx,ny=ty+dy; if(nx>=0&&ny>=0&&nx<MW&&ny<MH&&game.grid[ny*MW+nx]===FLOOR){ border=true; break; } }
+    if(border) wallPos.push([tx,ty]);
+  }
+  const wallMat=new THREE.MeshLambertMaterial({map:wallTexture()});
+  const inst=new THREE.InstancedMesh(new THREE.BoxGeometry(TILE,WALLH,TILE), wallMat, wallPos.length);
+  const m=new THREE.Matrix4();
+  wallPos.forEach((p,i)=>{ const [wx,wz]=tileToWorld(p[0],p[1]); m.makeTranslation(wx,WALLH/2,wz); inst.setMatrixAt(i,m); });
+  inst.instanceMatrix.needsUpdate=true; grp.add(inst);
+
+  // place machines / elevator / twisteds / player using rooms
+  const rooms=[...game.rooms];
+  // spawn room = first room
+  const spawn=rooms[0];
+  const [sx,sz]=tileToWorld(spawn.cx,spawn.cy);
+  game.ppos.set(sx,0,sz); game.pvel.set(0,0,0);
+
+  // machines required scales with floor
+  game.machineNeeded=Math.min(3+Math.floor((game.floor-1)*0.7), 7);
+  const machineCount=game.machineNeeded; // exactly the needed number, all must be done
+  game.machines=[];
+  const otherRooms=rooms.slice(1);
+  shuffle(otherRooms, game.seed^0xabcdef);
+  for(let i=0;i<machineCount;i++){
+    const r=otherRooms[i%otherRooms.length];
+    const tx=r.x+1+((hashRng(game.seed+i*7)* (r.w-2))|0);
+    const ty=r.y+1+((hashRng(game.seed+i*13+3)*(r.h-2))|0);
+    const [mx,mz]=tileToWorld(tx,ty);
+    const model=makeMachineModel(); model.position.set(mx,0,mz); grp.add(model);
+    game.machines.push({x:mx,z:mz,model,progress:0,done:false});
+  }
+  game.machineDone=0; game.researching=null; game.skill=null;
+
+  // elevator in the farthest room from spawn
+  let far=otherRooms[0], fd=-1;
+  for(const r of otherRooms){ const d=(r.cx-spawn.cx)**2+(r.cy-spawn.cy)**2; if(d>fd){ fd=d; far=r; } }
+  const [ex,ez]=tileToWorld(far.cx,far.cy);
+  const elev=makeElevatorModel(); elev.position.set(ex,0,ez); grp.add(elev);
+  game.elevator={x:ex,z:ez,model:elev}; game.elevatorReady=false;
+
+  // twisteds
+  game.twisteds.forEach(t=>grp.remove(t.model));
+  game.twisteds=[];
+  const tcount=Math.min(1+Math.floor(game.floor/2), 5) + (game.dark?1:0);
+  for(let i=0;i<tcount;i++){
+    // spawn in a room far from player
+    let room=otherRooms[(i+1)%otherRooms.length];
+    const [tx,tz]=tileToWorld(room.cx,room.cy);
+    const baseSpeed=(game.dark?9:7)+game.floor*0.25;
+    const color=game.dark?0x1f6b2a:TWISTED_COLORS[i%TWISTED_COLORS.length];
+    const model=makeTwistedModel(color); model.position.set(tx,0,tz); grp.add(model);
+    game.twisteds.push({x:tx,z:tz,model,state:'wander',target:null,seeTimer:0,lastX:tx,lastZ:tz,speed:baseSpeed,wob:Math.random()*7});
+  }
+
+  // player model
+  if(game.player) game.scene.remove(game.player);
+  game.player=makeToonModel(game.toon); game.scene.add(game.player);
+  game.player.position.copy(game.ppos);
+
+  // lighting per floor
+  if(game.dark){ game.hemi.intensity=0.12; game.dir.intensity=0.06; game.playerLight.intensity=2.2; game.scene.fog.near=14; game.scene.fog.far=44; game.scene.background.setHex(0x07060c); }
+  else { game.hemi.intensity=0.85; game.dir.intensity=0.7; game.playerLight.intensity=0; game.scene.fog.near=60; game.scene.fog.far=150; game.scene.background.setHex(0x12101c); }
+
+  // camera snap behind player
+  game.camYaw=0;
+  updateCamera(true);
+}
+function shuffle(a,seed){ const rng=mulberry32(seed); for(let i=a.length-1;i>0;i--){ const j=(rng()*(i+1))|0; [a[i],a[j]]=[a[j],a[i]]; } }
+function hashRng(n){ n=Math.imul(n^(n>>>15),2246822507); n=Math.imul(n^(n>>>13),3266489909); return ((n^(n>>>16))>>>0)/4294967296; }
+function disposeGroup(g){ g.traverse(o=>{ if(o.geometry) o.geometry.dispose(); if(o.material){ const ms=Array.isArray(o.material)?o.material:[o.material]; ms.forEach(mm=>{ if(mm.map) mm.map.dispose(); mm.dispose(); }); } }); }
+
+// =====================================================================
+//  Collision (XZ vs wall tiles)
+// =====================================================================
+function blockedAt(x,z,r){
+  const x0=Math.floor((x-r)/TILE), x1=Math.floor((x+r)/TILE);
+  const z0=Math.floor((z-r)/TILE), z1=Math.floor((z+r)/TILE);
+  for(let ty=z0;ty<=z1;ty++) for(let tx=x0;tx<=x1;tx++) if(isWallTile(tx,ty)) return true;
+  return false;
+}
+function moveCircle(obj,dx,dz,r){
+  if(!blockedAt(obj.x+dx,obj.z,r)) obj.x+=dx; else { while(Math.abs(dx)>0.01 && !blockedAt(obj.x+Math.sign(dx)*0.05,obj.z,r)){ obj.x+=Math.sign(dx)*0.05; dx-=Math.sign(dx)*0.05; } }
+  if(!blockedAt(obj.x,obj.z+dz,r)) obj.z+=dz; else { while(Math.abs(dz)>0.01 && !blockedAt(obj.x,obj.z+Math.sign(dz)*0.05,r)){ obj.z+=Math.sign(dz)*0.05; dz-=Math.sign(dz)*0.05; } }
+}
+// line of sight between two points (no wall tile between)
+function lineOfSight(x0,z0,x1,z1){
+  const dx=x1-x0, dz=z1-z0; const dist=Math.hypot(dx,dz); const steps=Math.ceil(dist/(TILE*0.4));
+  for(let i=1;i<steps;i++){ const t=i/steps; if(isWallTile(Math.floor((x0+dx*t)/TILE), Math.floor((z0+dz*t)/TILE))) return false; }
+  return true;
+}
+
+// =====================================================================
+//  Update: player
+// =====================================================================
+function updatePlayer(dt){
+  const k=game.keys;
+  let mx=0,mz=0;
+  if(k['KeyW']||k['ArrowUp']) mz-=1;
+  if(k['KeyS']||k['ArrowDown']) mz+=1;
+  if(k['KeyA']||k['ArrowLeft']) mx-=1;
+  if(k['KeyD']||k['ArrowRight']) mx+=1;
+  const moving=(mx||mz);
+  // sprint
+  const wantSprint=(k['ShiftLeft']||k['ShiftRight']) && game.stam>0.02 && moving;
+  const baseSpeed=8 + game.toon.speed*1.1;
+  const speed=baseSpeed*(wantSprint?1.7:1.0);
+  if(wantSprint){ game.stam=Math.max(0, game.stam - dt*(0.42 - game.toon.stam*0.05)); game.noise=Math.max(game.noise, 0.7); }
+  else { game.stam=Math.min(1, game.stam + dt*(0.18 + game.toon.stam*0.03)); }
+
+  if(moving){
+    const len=Math.hypot(mx,mz); mx/=len; mz/=len;
+    const obj={x:game.ppos.x,z:game.ppos.z};
+    moveCircle(obj, mx*speed*dt, mz*speed*dt, PR);
+    game.ppos.x=obj.x; game.ppos.z=obj.z;
+    game.face=Math.atan2(mx,mz);
+  }
+  // noise decays
+  game.noise=Math.max(0, game.noise - dt*0.8);
+  if(moving && !wantSprint) game.noise=Math.max(game.noise, 0.25);
+
+  // model
+  const bob=moving?Math.sin(performance.now()*0.012)*0.12:0;
+  game.player.position.set(game.ppos.x, bob, game.ppos.z);
+  game.player.rotation.y += angleLerp(game.player.rotation.y, game.face, 0.25);
+  game.playerLight.position.set(game.ppos.x, 6, game.ppos.z);
+
+  if(game.iframes>0){ game.iframes-=dt; game.player.visible = (Math.floor(performance.now()/90)%2===0); } else game.player.visible=true;
+}
+function angleLerp(a,b,t){ let d=((b-a+Math.PI)%(Math.PI*2))-Math.PI; return d*t; }
+
+// =====================================================================
+//  Update: machines + skill checks
+// =====================================================================
+function updateMachines(dt){
+  // find machine player is standing on
+  let near=null;
+  for(const mc of game.machines){ if(mc.done) continue; if(Math.hypot(mc.x-game.ppos.x, mc.z-game.ppos.z) < 3.4){ near=mc; break; } }
+  const prompt=$('#prompt');
+  if(near && !game.skill){
+    game.researching=near;
+    // research progress
+    const rate=0.10 + game.toon.extract*0.035;
+    near.progress=Math.min(1, near.progress + rate*dt);
+    near.model.userData.light.material.color.setHex(0xffcf3a);
+    near.model.userData.light.scale.setScalar(1+Math.sin(performance.now()*0.01)*0.3);
+    prompt.style.display='block'; prompt.innerHTML=`Researching… <b>${Math.round(near.progress*100)}%</b>`;
+    // spawn skill checks periodically
+    near.scTimer=(near.scTimer||1.6)-dt;
+    if(near.scTimer<=0){ startSkillCheck(near); }
+    if(near.progress>=1){ completeMachine(near); }
+  } else if(!near){
+    game.researching=null;
+    if(!game.skill) prompt.style.display='none';
+  }
+  // skill check cursor
+  if(game.skill){
+    const s=game.skill; s.t+=dt*s.dir*1.6;
+    if(s.t>1){ s.t=1; s.dir=-1; } if(s.t<0){ s.t=0; s.dir=1; }
+    s.life-=dt;
+    $('#skillCursor').style.left=(s.t*100)+'%';
+    if(s.life<=0){ endSkillCheck(false); }   // ran out: no bonus, small noise
+  }
+}
+function startSkillCheck(mc){
+  const w=0.10 + game.toon.skill*0.03;       // green zone width grows with skill
+  const a=0.15 + Math.random()*(0.7-w);
+  game.skill={ mc, t:0, dir:1, zoneA:a, zoneW:w, life:3.2 };
+  $('#skill').style.display='block';
+  $('#skillZone').style.left=(a*100)+'%';
+  $('#skillZone').style.width=(w*100)+'%';
+}
+function endSkillCheck(hit){
+  const s=game.skill; if(!s) return;
+  if(hit){ s.mc.progress=Math.min(1, s.mc.progress+0.18); toast('Great!'); }
+  else { game.noise=1; alertTwisteds(s.mc.x,s.mc.z); }
+  s.mc.scTimer=1.4+Math.random()*1.2;
+  game.skill=null; $('#skill').style.display='none';
+}
+function tryHitSkillCheck(){
+  const s=game.skill; if(!s) return;
+  const inZone = s.t>=s.zoneA && s.t<=s.zoneA+s.zoneW;
+  endSkillCheck(inZone);
+}
+function completeMachine(mc){
+  mc.done=true; game.machineDone++; game.runIchor+=12; game.skill=null; $('#skill').style.display='none';
+  mc.model.userData.light.material.color.setHex(0x3ad17a);
+  mc.model.userData.panel.material.color.setHex(0x1c5a3a);
+  toast('Machine complete! ('+game.machineDone+'/'+game.machineNeeded+')');
+  if(game.machineDone>=game.machineNeeded){ powerElevator(); }
+}
+function powerElevator(){
+  game.elevatorReady=true;
+  game.elevator.model.userData.door.material.color.setHex(0x35d17a);
+  game.elevator.model.userData.frame.material.color.setHex(0x2f6b4a);
+  toast('⬇ Elevator powered! Get to it!');
+}
+
+// =====================================================================
+//  Update: twisteds
+// =====================================================================
+function alertTwisteds(x,z){ for(const t of game.twisteds){ if(Math.hypot(t.x-x,t.z-z)<55){ t.state='chase'; t.lastX=x; t.lastZ=z; t.seeTimer=4; } } }
+function updateTwisteds(dt){
+  let nearest=999;
+  for(const t of game.twisteds){
+    const dpx=game.ppos.x-t.x, dpz=game.ppos.z-t.z; const pd=Math.hypot(dpx,dpz);
+    nearest=Math.min(nearest,pd);
+    // detection
+    const detect=( (game.dark?20:30) * (1 - (game.toon.stealth-3)*0.08) ) + game.noise*22;
+    if(pd<detect && lineOfSight(t.x,t.z,game.ppos.x,game.ppos.z)){ t.state='chase'; t.lastX=game.ppos.x; t.lastZ=game.ppos.z; t.seeTimer=2.5; }
+    if(t.state==='chase'){
+      t.seeTimer-=dt;
+      const dx=t.lastX-t.x, dz=t.lastZ-t.z; const d=Math.hypot(dx,dz)||1;
+      moveCircle(t, dx/d*t.speed*dt, dz/d*t.speed*dt, TR);
+      if(d<1.5 && t.seeTimer<=0){ t.state='wander'; t.target=null; }
+    } else {
+      // wander toward a random room center
+      if(!t.target || Math.hypot(t.target.x-t.x,t.target.z-t.z)<2){ const r=game.rooms[(Math.random()*game.rooms.length)|0]; const [wx,wz]=tileToWorld(r.cx,r.cy); t.target={x:wx,z:wz}; }
+      const dx=t.target.x-t.x, dz=t.target.z-t.z; const d=Math.hypot(dx,dz)||1;
+      moveCircle(t, dx/d*t.speed*0.55*dt, dz/d*t.speed*0.55*dt, TR);
+    }
+    // face + bob
+    t.wob+=dt*8;
+    t.model.position.set(t.x, Math.sin(t.wob)*0.18, t.z);
+    const fx=(t.state==='chase')?(game.ppos.x-t.x):(t.target?t.target.x-t.x:0);
+    const fz=(t.state==='chase')?(game.ppos.z-t.z):(t.target?t.target.z-t.z:0);
+    t.model.rotation.y=Math.atan2(fx,fz);
+    // contact
+    if(pd < PR+TR+0.4 && game.iframes<=0){ hitPlayer(); }
+  }
+  // proximity vignette
+  const chasing=game.twisteds.some(t=>t.state==='chase');
+  let intensity=0;
+  if(nearest<26) intensity=(26-nearest)/26*0.7 + (chasing?0.25:0);
+  $('#vignette').style.boxShadow=`inset 0 0 200px ${40+intensity*60}px rgba(150,0,0,${Math.min(0.85,intensity)})`;
+}
+function hitPlayer(){
+  game.hearts--; game.iframes=1.4; game.noise=1;
+  flashHurt();
+  if(game.hearts<=0){ gameOver(); }
+}
+function flashHurt(){ const r=game.renderer.domElement; r.style.transition='filter .05s'; r.style.filter='brightness(1.5) saturate(1.6) hue-rotate(-20deg)'; setTimeout(()=>r.style.filter='',120); }
+
+// =====================================================================
+//  Camera (fixed angle follow)
+// =====================================================================
+function updateCamera(snap){
+  const off=new THREE.Vector3(0, 30, 26);
+  const desired=new THREE.Vector3(game.ppos.x+off.x, off.y, game.ppos.z+off.z);
+  if(snap) game.camera.position.copy(desired);
+  else game.camera.position.lerp(desired, 0.12);
+  game.camera.lookAt(game.ppos.x, 2, game.ppos.z);
+}
+
+// =====================================================================
+//  HUD
+// =====================================================================
+function pips(n,max,full,empty){ let s=''; for(let i=0;i<max;i++) s+= i<n?full:empty; return s; }
+function updateHUD(){
+  $('#hearts').textContent=pips(game.hearts, game.maxHearts, '❤️','🖤');
+  $('#floorLbl').textContent='Floor '+game.floor+(game.dark?' · BLACKOUT':'');
+  $('#objLbl').textContent = game.elevatorReady? 'Elevator ready — run to it!' : `Research machines: ${game.machineDone}/${game.machineNeeded}`;
+  $('#ichor').innerHTML=`✦ ${save.ichor+game.runIchor} <small>Ichor</small>`;
+  $('#stamFill').style.width=(game.stam*100)+'%';
+  $('#stamFill').style.background = game.stam<0.2? 'linear-gradient(90deg,#d15a3a,#a83f2f)':'linear-gradient(90deg,#3ad17a,#2fa85f)';
+  $('#extractFill').style.width=(game.machineDone/game.machineNeeded*100)+'%';
+  $('#extractLbl').textContent = game.elevatorReady? 'EXTRACTION READY' : 'Machines '+game.machineDone+'/'+game.machineNeeded;
+}
+let toastT=0;
+function toast(m){ const t=$('#toast'); t.textContent=m; t.style.opacity='1'; clearTimeout(toastT); toastT=setTimeout(()=>t.style.opacity='0',1500); }
+
+// =====================================================================
+//  Flow: start / clear / over
+// =====================================================================
+function startRun(){
+  game.toon = TOONS.find(t=>t.id===game.selId);
+  game.floor=1; game.seed=(Math.random()*1e9)|0;
+  game.maxHearts=game.toon.hearts; game.hearts=game.maxHearts;
+  game.stam=1; game.iframes=0; game.noise=0; game.runIchor=0;
+  showLoading(()=>{ buildFloor(); enterPlaying(); });
+}
+function nextFloor(){
+  game.floor++; game.seed=(game.seed*16807+12345)>>>0;
+  if(game.floor%3===0 && game.hearts<game.maxHearts){ game.hearts++; }   // small relief
+  showLoading(()=>{ buildFloor(); enterPlaying(); });
+}
+function enterPlaying(){
+  hidePanels(); $('#hud').style.display='block'; $('#exitBtn').style.display='block';
+  game.state='playing';
+}
+function floorClear(){
+  game.state='clear';
+  save.ichor+=game.runIchor + (20+game.floor*6); game.runIchor=0;
+  if(game.floor>save.best) save.best=game.floor;
+  writeSave();
+  $('#clearTitle').textContent='Floor '+game.floor+' cleared!';
+  $('#clearInfo').textContent=`Ichor this run banked. Next: Floor ${game.floor+1}${(game.floor+1)%5===0?' (BLACKOUT)':''}.`;
+  showPanel('#clear');
+}
+function gameOver(){
+  game.state='over'; flashHurt();
+  save.ichor+=game.runIchor; if(game.floor>save.best) save.best=game.floor; game.runIchor=0; writeSave();
+  $('#overInfo').textContent=`You reached Floor ${game.floor}. Best: Floor ${save.best}. Ichor: ${save.ichor}.`;
+  $('#hud').style.display='none';
+  showPanel('#over');
+}
+function toLobby(){ game.state='lobby'; $('#hud').style.display='none'; $('#exitBtn').style.display='none'; buildLobby(); showPanel('#lobby'); }
+
+function showLoading(done){
+  $('#loading').style.display='flex'; hidePanels(); let p=0;
+  const iv=setInterval(()=>{ p+=20; $('#loadFill').style.width=Math.min(100,p)+'%'; if(p>=100){ clearInterval(iv); $('#loading').style.display='none'; done(); } }, 40);
+}
+function showPanel(sel){ document.querySelectorAll('.panel').forEach(p=>p.classList.remove('show')); if(sel) $(sel).classList.add('show'); }
+function hidePanels(){ document.querySelectorAll('.panel').forEach(p=>p.classList.remove('show')); }
+
+// =====================================================================
+//  Lobby UI
+// =====================================================================
+function buildLobby(){
+  $('#ichorTop').textContent='✦ '+save.ichor+' Ichor   ·   Best: Floor '+save.best;
+  const grid=$('#toonGrid'); grid.innerHTML='';
+  for(const t of TOONS){
+    const unlocked=save.unlocked.includes(t.id);
+    const card=document.createElement('div'); card.className='tcard'+(t.id===game.selId?' sel':'')+(unlocked?'':' locked');
+    const cv=document.createElement('canvas'); cv.width=cv.height=84; drawToonIcon(cv,t); card.appendChild(cv);
+    const nm=document.createElement('div'); nm.className='nm'; nm.textContent=t.name; card.appendChild(nm);
+    if(!unlocked){ const pr=document.createElement('div'); pr.className='pr'; pr.textContent='✦ '+t.price; card.appendChild(pr);
+      const lk=document.createElement('div'); lk.className='lk'; lk.textContent='🔒'; card.appendChild(lk); }
+    card.onclick=()=>{ game.selId=t.id; buildLobby(); };
+    grid.appendChild(card);
+  }
+  const sel=TOONS.find(t=>t.id===game.selId);
+  $('#selName').textContent=sel.name;
+  const unlocked=save.unlocked.includes(sel.id);
+  const statRow=(label,v)=>`<div class="row"><span>${label}</span><span class="pips" style="color:#ffd34d">${pips(v,5,'◆','◇')}</span></div>`;
+  $('#selStats').innerHTML =
+    `<div style="opacity:.8;margin-bottom:6px">${sel.blurb}</div>`+
+    statRow('Hearts',sel.hearts)+statRow('Speed',sel.speed)+statRow('Stamina',sel.stam)+
+    statRow('Skill',sel.skill)+statRow('Stealth',sel.stealth)+statRow('Research',sel.extract);
+  const act=$('#selAction');
+  if(unlocked){ act.innerHTML='<span style="color:#3ad17a;font-weight:bold">✓ Unlocked</span>'; $('#playBtn').disabled=false; }
+  else {
+    const can=save.ichor>=sel.price;
+    act.innerHTML=`<button class="btn sec" id="buyBtn" ${can?'':'disabled'}>Unlock for ✦ ${sel.price}</button>`+(can?'':'<div style="font-size:11px;opacity:.7;margin-top:4px">Not enough Ichor — clear more floors!</div>');
+    $('#playBtn').disabled=true;
+    const bb=$('#buyBtn'); if(bb) bb.onclick=()=>{ if(save.ichor>=sel.price){ save.ichor-=sel.price; save.unlocked.push(sel.id); writeSave(); buildLobby(); toast('Unlocked '+sel.name+'!'); } };
+  }
+}
+
+// =====================================================================
+//  Input
+// =====================================================================
+function setupInput(){
+  addEventListener('keydown',e=>{
+    game.keys[e.code]=true;
+    if(e.code==='Space'){ if(game.state==='playing'){ e.preventDefault(); tryHitSkillCheck(); } }
+    if(e.code==='Escape'){ if(game.state==='playing'){ game.state='paused'; $('#pauseInfo').textContent='Floor '+game.floor+' · '+game.toon.name; showPanel('#pause'); } else if(game.state==='paused'){ resume(); } }
+  });
+  addEventListener('keyup',e=>{ game.keys[e.code]=false; });
+  addEventListener('blur',()=>{ game.keys={}; });
+}
+function resume(){ hidePanels(); $('#hud').style.display='block'; game.state='playing'; }
+
+// =====================================================================
+//  Main loop
+// =====================================================================
+function loop(){
+  requestAnimationFrame(loop);
+  let dt=game.clock.getDelta(); if(dt>0.05) dt=0.05;
+  if(game.state==='playing'){
+    updatePlayer(dt);
+    updateMachines(dt);
+    updateTwisteds(dt);
+    // elevator
+    if(game.elevatorReady && Math.hypot(game.elevator.x-game.ppos.x, game.elevator.z-game.ppos.z)<3.2){ floorClear(); }
+    updateCamera(false);
+    updateHUD();
+  }
+  game.renderer.render(game.scene, game.camera);
+}
+
+// =====================================================================
+//  Wire UI + boot
+// =====================================================================
+function bootUI(){
+  $('#playBtn').onclick=()=>startRun();
+  $('#howBtn').onclick=()=>{ const h=$('#howBox'); h.style.display=h.style.display==='none'?'block':'none'; };
+  $('#resumeBtn').onclick=resume;
+  $('#lobbyBtn').onclick=toLobby;
+  $('#nextBtn').onclick=()=>nextFloor();
+  $('#overLobby').onclick=toLobby;
+}
+
+initThree();
+setupInput();
+bootUI();
+buildLobby();
+loop();
+
+window.Dandys={game, save, startRun, TOONS};
+</script>
+</body>
+</html>
